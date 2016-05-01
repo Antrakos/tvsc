@@ -281,22 +281,12 @@ namespace TVSeriesCompanion.Controllers
             }
             return tvSeries;
         }
-
         public static List<Torrent> searchTorrent(String query)
         {
             String json;
             using (WebClient wc = new WebClient())
                 json = wc.DownloadString("https://kat.cr/json.php?q=" + query + "&field=seeders&order=desc");
-            List<Torrent> torrnetList = new List<Torrent>();
-            foreach (var item in JObject.Parse(json)["list"])
-                torrnetList.Add(new Torrent((string) item["title"],
-                                       (DateTime) item["pubDate"],
-                                       (string)item["torrentLink"],
-                                       (int)item["peers"],
-                                       (int)item["seeds"],
-                                       (int)item["leechs"],
-                                       Convert.ToDouble(((Int64)item["size"]) / 1048576)));    
-            return torrnetList;
+            return JObject.Parse(json)["list"].Select(item => new Torrent((string) item["title"], (DateTime) item["pubDate"], (string) item["torrentLink"], (int) item["peers"], (int) item["seeds"], (int) item["leechs"], Convert.ToDouble(((Int64) item["size"])/1048576))).ToList();
         }
         public static void downloadTorrent(Torrent torrent)
         {
@@ -309,7 +299,6 @@ namespace TVSeriesCompanion.Controllers
         }
         private static void DownloadFile(string url, string file)
         {
-            byte[] result;
             byte[] buffer = new byte[4096];
 
             WebRequest wr = WebRequest.Create(url);
@@ -322,15 +311,14 @@ namespace TVSeriesCompanion.Controllers
 
                     using (MemoryStream memoryStream = new MemoryStream())
                     {
-                        int count = 0;
+                        int count;
                         do
                         {
                             count = responseStream.Read(buffer, 0, buffer.Length);
                             memoryStream.Write(buffer, 0, count);
                         } while (count != 0);
-                        result = memoryStream.ToArray();
                         using (BinaryWriter writer = new BinaryWriter(new FileStream(file, FileMode.Create)))
-                            writer.Write(result);
+                            writer.Write(memoryStream.ToArray());
                     }
                 }
             if (settings.RUN_TORRENT_AFTER_DOWNLOAD)
