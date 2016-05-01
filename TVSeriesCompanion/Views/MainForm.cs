@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Windows.Forms;
 using TrayNotification;
 using TVSeriesCompanion.Aspects;
@@ -160,12 +161,11 @@ namespace TVSeriesCompanion.Views
             checkBtn.Tag = downloadBtn.Tag = episode;
             checkBtn.Click += CheckEpisodeClick;
             downloadBtn.Click += (s, ev) => {
-                
-                                                if (SeriesManager.isOnline())
-                                                    (new TorrentForm((s as Button).Tag as Episode, this)).Show();
-                                                else
-                                                    MessageBox.Show(@"No Internet connection");
-                                                WindowState = FormWindowState.Minimized;
+                if (SeriesManager.isOnline())
+                    (new TorrentForm(((Button) s).Tag as Episode, this)).Show();
+                else
+                    MessageBox.Show(@"No Internet connection");
+                WindowState = FormWindowState.Minimized;
             };
             panel.RowCount++;
             Label nameLabel = new Label { Text = episode.getNumber() + @": " + episode.getName(), AutoSize = true, TextAlign = ContentAlignment.MiddleLeft, Anchor = ((AnchorStyles.Top | AnchorStyles.Bottom) | AnchorStyles.Left) | AnchorStyles.Right };
@@ -206,7 +206,6 @@ namespace TVSeriesCompanion.Views
                             SeasonFlowLabelClick(new Label { Tag = ep.getSeason() }, e);
                         };
                         n.Show();
-
                     };
                     lb.MouseEnter += OnMouseEnter;
                     lb.MouseLeave += OnMouseLeave;
@@ -240,11 +239,9 @@ namespace TVSeriesCompanion.Views
                 bool isConnected = SeriesManager.isOnline();
                 searchTextBox.Text = (isConnected ? (searchTextBox.Text == @"No Internet connection" ? "" : searchTextBox.Text) : "No Internet connection");
                 searchTextBox.Enabled = isConnected;
-                if (!isConnected)
-                {
-                    searchResultsTableLayout.Controls.Clear();
-                    searchResultsTableLayout.RowCount = 1;
-                }
+                if (isConnected) return;
+                searchResultsTableLayout.Controls.Clear();
+                searchResultsTableLayout.RowCount = 1;
             }
         }
         private void RepaintDbPage()
@@ -269,53 +266,51 @@ namespace TVSeriesCompanion.Views
         [StatusAspect]
         private void searchTextBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter)
+            if (e.KeyCode != Keys.Enter) return;
+            
+            foreach (Control c in from Control c in searchTableLayout.Controls where c.GetType() != searchTextBox.GetType() select c)
+                searchTableLayout.Controls.Remove(c);
+            searchResultsTableLayout.Controls.Clear();
+            searchResultsTableLayout.RowCount = 1;
+            List<Serial> results = SeriesManager.findByName(searchTextBox.Text);
+            if (results.Count == 0)
             {
-                foreach (Control c in searchTableLayout.Controls)
-                    if (c.GetType() != searchTextBox.GetType())
-                        searchTableLayout.Controls.Remove(c);
-                searchResultsTableLayout.Controls.Clear();
-                searchResultsTableLayout.RowCount = 1;
-                List<Serial> results = SeriesManager.findByName(searchTextBox.Text);
-                if (results.Count == 0)
-                {
-                    searchTableLayout.Controls.Add(new Label { Text = @"No results found", AutoSize = true, Font = new Font("Calibri", 20, (FontStyle.Italic | FontStyle.Bold)) });
-                    return;
-                }
-                searchTableLayout.Controls.Add(searchResultsTableLayout);
-                searchResultsTableLayout.Controls.Add(new Label());
-                searchResultsTableLayout.Controls.Add(new Label { Text = @"Title", AutoSize = true }, 1, 0);
-                searchResultsTableLayout.Controls.Add(new Label { Text = @"First aired", AutoSize = true }, 2, 0);
+                searchTableLayout.Controls.Add(new Label { Text = @"No results found", AutoSize = true, Font = new Font("Calibri", 20, (FontStyle.Italic | FontStyle.Bold)) });
+                return;
+            }
+            searchTableLayout.Controls.Add(searchResultsTableLayout);
+            searchResultsTableLayout.Controls.Add(new Label());
+            searchResultsTableLayout.Controls.Add(new Label { Text = @"Title", AutoSize = true }, 1, 0);
+            searchResultsTableLayout.Controls.Add(new Label { Text = @"First aired", AutoSize = true }, 2, 0);
 
-                foreach (Serial serial in results)
+            foreach (Serial serial in results)
+            {
+                Button saveBtn = getButton(SeriesManager.getSettings().ADD_IMAGE);
+                saveBtn.Tag = serial.getId();
+                saveBtn.Click += addSerialClick;
+                Label[] labels = new Label[2];
+                for (int i = 0; i < labels.Length; i++)
                 {
-                    Button saveBtn = getButton(SeriesManager.getSettings().ADD_IMAGE);
-                    saveBtn.Tag = serial.getId();
-                    saveBtn.Click += addSerialClick;
-                    Label[] labels = new Label[2];
-                    for (int i = 0; i < labels.Length; i++)
-                    {
-                        labels[i] = new Label { AutoSize = true, TextAlign = ContentAlignment.MiddleLeft };
-                        labels[i].Anchor = ((AnchorStyles.Top | AnchorStyles.Bottom) | AnchorStyles.Left) | AnchorStyles.Right;
-                    }
-                    labels[0].Text = serial.getName();
-                    labels[0].Tag = serial.getId();
-                    labels[1].Text = serial.getFirstAired().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-                    labels[0].Click += (s, ev) => DrawSerialInfo(SeriesManager.findById((s as Label).Tag.ToString()));
-                    labels[0].MouseEnter += OnMouseEnter;
-                    labels[0].MouseLeave += OnMouseLeave;
-
-                    searchResultsTableLayout.RowCount++;
-                    searchResultsTableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
-                    searchResultsTableLayout.Controls.Add(saveBtn, 0, searchResultsTableLayout.RowCount - 1);
-                    searchResultsTableLayout.Controls.Add(labels[0], 1, searchResultsTableLayout.RowCount - 1);
-                    searchResultsTableLayout.Controls.Add(labels[1], 2, searchResultsTableLayout.RowCount - 1);
+                    labels[i] = new Label { AutoSize = true, TextAlign = ContentAlignment.MiddleLeft };
+                    labels[i].Anchor = ((AnchorStyles.Top | AnchorStyles.Bottom) | AnchorStyles.Left) | AnchorStyles.Right;
                 }
+                labels[0].Text = serial.getName();
+                labels[0].Tag = serial.getId();
+                labels[1].Text = serial.getFirstAired().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                labels[0].Click += (s, ev) => DrawSerialInfo(SeriesManager.findById((s as Label).Tag.ToString()));
+                labels[0].MouseEnter += OnMouseEnter;
+                labels[0].MouseLeave += OnMouseLeave;
+
+                searchResultsTableLayout.RowCount++;
+                searchResultsTableLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
+                searchResultsTableLayout.Controls.Add(saveBtn, 0, searchResultsTableLayout.RowCount - 1);
+                searchResultsTableLayout.Controls.Add(labels[0], 1, searchResultsTableLayout.RowCount - 1);
+                searchResultsTableLayout.Controls.Add(labels[1], 2, searchResultsTableLayout.RowCount - 1);
             }
         }
         private void flowPanel_Enter(object sender, EventArgs e)
         {
-            (sender as FlowLayoutPanel).Focus();
+            ((FlowLayoutPanel) sender).Focus();
         }
         [StatusAspect]
         private void deleteCurrentToolStripMenuItem_Click(object sender, EventArgs e)
@@ -324,7 +319,7 @@ namespace TVSeriesCompanion.Views
                 return;
             SeriesManager.deleteSerial(_currentSerial);
             _currentSerial = null;
-            clearSerialData();
+            ClearSerialData();
         }
         [StatusAspect]
         private void deleteAllToolStripMenuItem_Click(object sender, EventArgs e)
@@ -332,9 +327,9 @@ namespace TVSeriesCompanion.Views
             _currentSerial = null;
             foreach (Serial serial in SeriesManager.getSavedTVSeries())
                 SeriesManager.deleteSerial(serial);
-            clearSerialData();
+            ClearSerialData();
         }
-        private void clearSerialData()
+        private void ClearSerialData()
         {
             RepaintDbPage();
             tabControl.SelectedIndex = 0;
@@ -365,7 +360,7 @@ namespace TVSeriesCompanion.Views
             foreach (Serial serial in SeriesManager.getSavedTVSeries())
                 SeriesManager.updateSerial(serial);
             SeriesManager.getSettings().LAST_UPDATED = DateTime.Now;
-            clearSerialData();
+            ClearSerialData();
         }
         private void MainFrame_Shown(object sender, EventArgs e)
         {

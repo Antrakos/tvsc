@@ -512,7 +512,7 @@ namespace TVSeriesCompanion.Controllers
             try
             {
                 using (var client = new WebClient())
-                    using (var stream = client.OpenRead("http://www.google.com"))
+                    using (client.OpenRead("http://www.google.com"))
                         return true;
             }
             catch { return false; }

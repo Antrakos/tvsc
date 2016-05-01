@@ -1,11 +1,8 @@
-﻿using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System;
+using System.Globalization;
+using System.IO;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Model
 {
@@ -26,11 +23,11 @@ namespace Model
         public TimeSpan UPDATE_INTERVAL;
         public Settings(string settingsPath)
         {
-            setDefaultSettings();
+            SetDefaultSettings();
             path = settingsPath;
-            if (!System.IO.File.Exists(settingsPath))
+            if (!File.Exists(settingsPath))
                 return;
-            var d = JObject.Parse(System.IO.File.ReadAllText(settingsPath)).GetEnumerator();
+            var d = JObject.Parse(File.ReadAllText(settingsPath)).GetEnumerator();
             while (d.MoveNext())
                 switch (d.Current.Key)
                 {
@@ -48,7 +45,7 @@ namespace Model
                     case "UPDATE_INTERVAL":             UPDATE_INTERVAL = d.Current.Value.ToString() == "" ? TimeSpan.FromDays(1) : TimeSpan.Parse((string)d.Current.Value); break;
                 }
         }
-        public void setDefaultSettings() 
+        private void SetDefaultSettings() 
         {
             TORRENT_DIR = "torrents\\";
             SUBS_DIR = "subtitles\\";
@@ -60,7 +57,7 @@ namespace Model
             UNCHECK_IMAGE = "resources\\images\\check-icon.png";
             DOWNLOAD_IMAGE = "resources\\images\\download.ico";
             ADD_IMAGE = "resources\\images\\sign-27080_640.png";
-            LAST_UPDATED = DateTime.Now;
+            LAST_UPDATED = DateTime.MinValue;
             UPDATE_INTERVAL = TimeSpan.FromDays(1);
         }
         public void save()
@@ -76,12 +73,12 @@ namespace Model
              new JProperty("UNCHECK_IMAGE", UNCHECK_IMAGE),
              new JProperty("DOWNLOAD_IMAGE", DOWNLOAD_IMAGE),
              new JProperty("ADD_IMAGE", ADD_IMAGE),
-             new JProperty("LAST_UPDATED", LAST_UPDATED.ToString()),
+             new JProperty("LAST_UPDATED", LAST_UPDATED.ToString(CultureInfo.InvariantCulture)),
              new JProperty("UPDATE_INTERVAL", UPDATE_INTERVAL.ToString()));
 
-            using (System.IO.StreamWriter file = System.IO.File.CreateText(path))
-            using (Newtonsoft.Json.JsonTextWriter writer = new Newtonsoft.Json.JsonTextWriter(file))
-                settings.WriteTo(writer);
+            using (StreamWriter file = File.CreateText(path))
+                using (JsonTextWriter writer = new JsonTextWriter(file))
+                    settings.WriteTo(writer);
         }
     }
 }
