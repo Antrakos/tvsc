@@ -4,7 +4,7 @@ using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Model
+namespace TVSeriesCompanion.Models
 {
     public class Settings
     {
@@ -45,7 +45,8 @@ namespace Model
                     case "UPDATE_INTERVAL":             UPDATE_INTERVAL = d.Current.Value.ToString() == "" ? TimeSpan.FromDays(1) : TimeSpan.Parse((string)d.Current.Value); break;
                 }
         }
-        private void SetDefaultSettings() 
+
+        public void SetDefaultSettings() 
         {
             TORRENT_DIR = "torrents\\";
             SUBS_DIR = "subtitles\\";

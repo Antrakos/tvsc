@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows.Forms;
 using TVSeriesCompanion.Controllers;
-using Model;
+using TVSeriesCompanion.Models;
 
 namespace TVSeriesCompanion.Views
 {
@@ -46,7 +46,7 @@ namespace TVSeriesCompanion.Views
 
         private void defaultBtn_Click(object sender, EventArgs e)
         {
-            SeriesManager.getSettings().setDefaultSettings();
+            SeriesManager.getSettings().SetDefaultSettings();
         }
 
         private void cancelBtn_Click(object sender, EventArgs e)

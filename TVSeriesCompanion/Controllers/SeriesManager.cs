@@ -11,7 +11,6 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
-using Model;
 using Newtonsoft.Json.Linq;
 using TrayNotification;
 using TVSeriesCompanion.Aspects;
