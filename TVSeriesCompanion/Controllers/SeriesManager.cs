@@ -22,6 +22,7 @@ namespace TVSeriesCompanion.Controllers
     {
         private static Settings settings = new Settings("settings.json");
         public static SQLiteConnection conn = createConnection("Data Source=MyDatabase.sqlite;Version=3;");
+        public static SQLiteTransaction transaction;
         private static SQLiteConnection createConnection(String path)
         {
             SQLiteConnection con = new SQLiteConnection(path);
@@ -87,23 +88,18 @@ namespace TVSeriesCompanion.Controllers
         public static void setSettings(Settings s) { settings = s; }
         public static List<Serial> findByName(String name)
         {
-            List<Serial> tvSeries = new List<Serial>();
             XmlDocument doc = DownloadXML(@"http://thetvdb.com/api/GetSeries.php?seriesname=" + String.Join("%20", name.Split(' ')));
-            foreach (XmlNode serial in doc.DocumentElement.ChildNodes)
-                tvSeries.Add(new Serial(serial));
-            return tvSeries;
+            return (from XmlNode serial in doc.DocumentElement.ChildNodes select new Serial(serial)).ToList();
         }
         public static Serial findById(String id)
         {
-            List<Season> seasons = new List<Season>();
             XmlNode episodes = DownloadXML(@"http://thetvdb.com/api/CC1D364E3115133D/series/" + id + @"/all").DocumentElement;
             Serial serial = new Serial(episodes.ChildNodes[0]);
             HashSet<String> seasonsNumbers = new HashSet<String>();
             foreach (XmlNode ep in episodes.SelectNodes("//Data//Episode"))
                 seasonsNumbers.Add(ep["SeasonNumber"].InnerText);
             var banners = getSeasonBanner(serial, seasonsNumbers);
-            foreach (String number in seasonsNumbers)
-                seasons.Add(new Season(episodes.SelectNodes("//Data//Episode[SeasonNumber=" + number + "]"), banners[number]));
+            List<Season> seasons = seasonsNumbers.Select(number => new Season(episodes.SelectNodes("//Data//Episode[SeasonNumber=" + number + "]"), banners[number])).ToList();
             foreach (Season season in seasons)
                 season.setSerial(serial);
             foreach (Season season in seasons)
@@ -121,13 +117,14 @@ namespace TVSeriesCompanion.Controllers
         [SqlConnectionAspect]
         public static void saveSerial(Serial serial)
         {
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = "SELECT id FROM TVSeries WHERE id=" + serial.getId();
                 if (command.ExecuteScalar() != null)
                     return;
             }
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "Insert into TVSeries Values (" + serial.ToQuery() + ")";
                 command.ExecuteNonQuery();
@@ -150,14 +147,14 @@ namespace TVSeriesCompanion.Controllers
         {
             Serial newSerial = findById(serial.getId().ToString());
             if (serial.ToQuery() != newSerial.ToQuery())
-                using (SQLiteCommand command = conn.CreateCommand())
+                using (SQLiteCommand command = getTransactionCommand())
                 {
                     command.CommandText = "DELETE FROM TVSeries WHERE id=" + serial.getId();
                     command.ExecuteNonQuery();
                     command.CommandText = "Insert into TVSeries Values (" + newSerial.ToQuery() + ")";
                     command.ExecuteNonQuery();
                 }
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
                 foreach (Season s in newSerial.getSeasons())
                 {
                     command.CommandText = "SELECT id FROM Seasons WHERE serial=" + serial.getId() + " AND number=" + s.getNumber();
@@ -177,18 +174,15 @@ namespace TVSeriesCompanion.Controllers
                     foreach (Episode e in s.getEpisodes())
                     {
                         bool contains = false;
-                        foreach (var id in episodesIDs)
-                            if (e.getId() == id.Key && DateTime.Now > DateTime.ParseExact(id.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture))
-                                contains = true;
-                        if (!contains)
-                        {
-                            command.CommandText = "DELETE FROM Episodes WHERE id=" + e.getId();
-                            command.ExecuteNonQuery();
-                            command.CommandText = "SELECT id FROM Seasons WHERE number=" + s.getNumber() + " and serial=" + serial.getId();
-                            String seasonId = command.ExecuteScalar().ToString();
-                            command.CommandText = "Insert into Episodes Values (" + e.ToQuery() + ", " + seasonId + ")";
-                            command.ExecuteNonQuery();
-                        }
+                        foreach (var id in episodesIDs.Where(id => e.getId() == id.Key && DateTime.Now > DateTime.ParseExact(id.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture)))
+                            contains = true;
+                        if (contains) continue;
+                        command.CommandText = "DELETE FROM Episodes WHERE id=" + e.getId();
+                        command.ExecuteNonQuery();
+                        command.CommandText = "SELECT id FROM Seasons WHERE number=" + s.getNumber() + " and serial=" + serial.getId();
+                        String seasonId = command.ExecuteScalar().ToString();
+                        command.CommandText = "Insert into Episodes Values (" + e.ToQuery() + ", " + seasonId + ")";
+                        command.ExecuteNonQuery();
                     }
                 }
         }
@@ -196,8 +190,8 @@ namespace TVSeriesCompanion.Controllers
         public static Serial getSavedSerial(String id)
         {
             Serial serial;
-            using (SQLiteCommand command = conn.CreateCommand(),
-                                 additionalCommand = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand(),
+                                 additionalCommand = getTransactionCommand())
             {
                 command.CommandText = "SELECT * from TVSeries WHERE id="+id;
                 SQLiteDataReader serialReader = command.ExecuteReader();
@@ -238,26 +232,23 @@ namespace TVSeriesCompanion.Controllers
         public static List<Serial> getSavedTVSeries()
         {
             List<Serial> tvSeries = new List<Serial>();
-            using (SQLiteCommand serialCommand = conn.CreateCommand(),
-                                 seasonCommand = conn.CreateCommand(),
-                                 episodeCommand = conn.CreateCommand())
+            using (SQLiteCommand serialCommand = getTransactionCommand(),
+                                 seasonCommand = getTransactionCommand(),
+                                 episodeCommand = getTransactionCommand())
             {
                 serialCommand.CommandText = "SELECT * FROM TVSeries";
                 SQLiteDataReader serialReader = serialCommand.ExecuteReader();
-                Serial serial;
                 while (serialReader.Read())
                 {
-                    serial = new Serial(serialReader);
+                    var serial = new Serial(serialReader);
                     seasonCommand.CommandText = "SELECT * from Seasons WHERE serial=" + serial.getId();
                     SQLiteDataReader seasonsReader = seasonCommand.ExecuteReader();
-                    SQLiteDataReader episodesReader;
-                    List<Episode> episodes;
                     List<Season> seasons = new List<Season>();
                     while (seasonsReader.Read())
                     {
                         episodeCommand.CommandText = "SELECT * from Episodes WHERE season=" + seasonsReader.GetInt16(0) + " ORDER BY number";
-                        episodesReader = episodeCommand.ExecuteReader();
-                        episodes = new List<Episode>();
+                        var episodesReader = episodeCommand.ExecuteReader();
+                        var episodes = new List<Episode>();
                         while (episodesReader.Read())
                             episodes.Add(new Episode(episodesReader));
                         seasons.Add(new Season(seasonsReader.GetInt16(1), episodes, seasonsReader.GetString(3)));
@@ -328,7 +319,7 @@ namespace TVSeriesCompanion.Controllers
         public static void changeWatchStatus(Episode episode)
         {
             episode.setWatched(!episode.isWatched());
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "UPDATE Episodes SET watched='" + episode.isWatched() + "' WHERE id=" + episode.getId();
                 command.ExecuteNonQuery();
@@ -340,7 +331,7 @@ namespace TVSeriesCompanion.Controllers
             foreach (var episode in season.getEpisodes())
                 if (episode.getFirstAired().Date <= DateTime.Now.Date && episode.getFirstAired().Date != new DateTime())
                     episode.setWatched(watchStatus);
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "UPDATE Episodes SET watched='" + watchStatus + "' WHERE season=(SELECT season FROM Episodes WHERE id =" + season.getEpisodes()[0].getId() + ")  AND firstAired BETWEEN '0001-01-02' AND CURRENT_TIMESTAMP";
                 command.ExecuteNonQuery();
@@ -349,7 +340,7 @@ namespace TVSeriesCompanion.Controllers
         [SqlConnectionAspect]
         public static void deleteSerial(Serial serial)
         {
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 foreach (Season season in serial.getSeasons())
                 {
@@ -423,7 +414,7 @@ namespace TVSeriesCompanion.Controllers
         public static List<Tuple<string,int>> getTVSeriesNames()
         {
             List<Tuple<string, int>> res = new List<Tuple<string, int>>();
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "SELECT * FROM TVSeries ORDER BY name";
                 SQLiteDataReader r = command.ExecuteReader();
@@ -503,6 +494,13 @@ namespace TVSeriesCompanion.Controllers
                         return true;
             }
             catch { return false; }
+        }
+
+        private static SQLiteCommand getTransactionCommand()
+        {
+            var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            return command;
         }
     }
 }
