@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Data.SQLite;
 using PostSharp.Aspects;
 using TVSeriesCompanion.Controllers;
 
