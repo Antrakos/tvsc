@@ -22,6 +22,7 @@ namespace TVSeriesCompanion.Controllers
     {
         private static Settings settings = new Settings("settings.json");
         public static SQLiteConnection conn = createConnection("Data Source=MyDatabase.sqlite;Version=3;");
+        public static SQLiteTransaction transaction;
         private static SQLiteConnection createConnection(String path)
         {
             SQLiteConnection con = new SQLiteConnection(path);
@@ -116,13 +117,14 @@ namespace TVSeriesCompanion.Controllers
         [SqlConnectionAspect]
         public static void saveSerial(Serial serial)
         {
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = "SELECT id FROM TVSeries WHERE id=" + serial.getId();
                 if (command.ExecuteScalar() != null)
                     return;
             }
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "Insert into TVSeries Values (" + serial.ToQuery() + ")";
                 command.ExecuteNonQuery();
@@ -145,14 +147,14 @@ namespace TVSeriesCompanion.Controllers
         {
             Serial newSerial = findById(serial.getId().ToString());
             if (serial.ToQuery() != newSerial.ToQuery())
-                using (SQLiteCommand command = conn.CreateCommand())
+                using (SQLiteCommand command = getTransactionCommand())
                 {
                     command.CommandText = "DELETE FROM TVSeries WHERE id=" + serial.getId();
                     command.ExecuteNonQuery();
                     command.CommandText = "Insert into TVSeries Values (" + newSerial.ToQuery() + ")";
                     command.ExecuteNonQuery();
                 }
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
                 foreach (Season s in newSerial.getSeasons())
                 {
                     command.CommandText = "SELECT id FROM Seasons WHERE serial=" + serial.getId() + " AND number=" + s.getNumber();
@@ -188,8 +190,8 @@ namespace TVSeriesCompanion.Controllers
         public static Serial getSavedSerial(String id)
         {
             Serial serial;
-            using (SQLiteCommand command = conn.CreateCommand(),
-                                 additionalCommand = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand(),
+                                 additionalCommand = getTransactionCommand())
             {
                 command.CommandText = "SELECT * from TVSeries WHERE id="+id;
                 SQLiteDataReader serialReader = command.ExecuteReader();
@@ -230,9 +232,9 @@ namespace TVSeriesCompanion.Controllers
         public static List<Serial> getSavedTVSeries()
         {
             List<Serial> tvSeries = new List<Serial>();
-            using (SQLiteCommand serialCommand = conn.CreateCommand(),
-                                 seasonCommand = conn.CreateCommand(),
-                                 episodeCommand = conn.CreateCommand())
+            using (SQLiteCommand serialCommand = getTransactionCommand(),
+                                 seasonCommand = getTransactionCommand(),
+                                 episodeCommand = getTransactionCommand())
             {
                 serialCommand.CommandText = "SELECT * FROM TVSeries";
                 SQLiteDataReader serialReader = serialCommand.ExecuteReader();
@@ -317,7 +319,7 @@ namespace TVSeriesCompanion.Controllers
         public static void changeWatchStatus(Episode episode)
         {
             episode.setWatched(!episode.isWatched());
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "UPDATE Episodes SET watched='" + episode.isWatched() + "' WHERE id=" + episode.getId();
                 command.ExecuteNonQuery();
@@ -329,7 +331,7 @@ namespace TVSeriesCompanion.Controllers
             foreach (var episode in season.getEpisodes())
                 if (episode.getFirstAired().Date <= DateTime.Now.Date && episode.getFirstAired().Date != new DateTime())
                     episode.setWatched(watchStatus);
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "UPDATE Episodes SET watched='" + watchStatus + "' WHERE season=(SELECT season FROM Episodes WHERE id =" + season.getEpisodes()[0].getId() + ")  AND firstAired BETWEEN '0001-01-02' AND CURRENT_TIMESTAMP";
                 command.ExecuteNonQuery();
@@ -338,7 +340,7 @@ namespace TVSeriesCompanion.Controllers
         [SqlConnectionAspect]
         public static void deleteSerial(Serial serial)
         {
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 foreach (Season season in serial.getSeasons())
                 {
@@ -412,7 +414,7 @@ namespace TVSeriesCompanion.Controllers
         public static List<Tuple<string,int>> getTVSeriesNames()
         {
             List<Tuple<string, int>> res = new List<Tuple<string, int>>();
-            using (SQLiteCommand command = conn.CreateCommand())
+            using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "SELECT * FROM TVSeries ORDER BY name";
                 SQLiteDataReader r = command.ExecuteReader();
@@ -492,6 +494,13 @@ namespace TVSeriesCompanion.Controllers
                         return true;
             }
             catch { return false; }
+        }
+
+        private static SQLiteCommand getTransactionCommand()
+        {
+            var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            return command;
         }
     }
 }

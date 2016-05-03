@@ -8,20 +8,18 @@ namespace TVSeriesCompanion.Aspects
     [Serializable]
     public sealed class SqlConnectionAspect : OnMethodBoundaryAspect
     {
-        [NonSerialized]
-        private SQLiteTransaction _transaction;
         public override void OnEntry(MethodExecutionArgs args)
         {
             SeriesManager.conn.Open();
-            _transaction = SeriesManager.conn.BeginTransaction();
+            SeriesManager.transaction = SeriesManager.conn.BeginTransaction();
         }
         public override void OnSuccess(MethodExecutionArgs args)
         {
-            _transaction.Commit();
+            SeriesManager.transaction.Commit();
         }
         public override void OnException(MethodExecutionArgs args)
         {
-            _transaction.Rollback();
+            SeriesManager.transaction.Rollback();
         }
         public override void OnExit(MethodExecutionArgs args)
         {
