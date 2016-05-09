@@ -66,7 +66,7 @@ namespace TVSeriesCompanion.Controllers
                 try
                 {
                     command.CommandText = @"CREATE TABLE Episodes (
-	                                        id integer PRIMARY KEY,
+	                                        id integer PRIMARY KEY AUTOINCREMENT,
 	                                        name string,
 	                                        number integer,
 	                                        firstAired date,
@@ -74,7 +74,7 @@ namespace TVSeriesCompanion.Controllers
 	                                        rating float,
 	                                        imdbId string,
 	                                        image string,
-	                                        watched binary,
+	                                        watched boolean,
 	                                        season integer,
                                             FOREIGN KEY(season) REFERENCES Seasons(id));";
                     command.ExecuteNonQuery();
@@ -95,7 +95,7 @@ namespace TVSeriesCompanion.Controllers
         {
             XmlNode episodes = DownloadXML(@"http://thetvdb.com/api/CC1D364E3115133D/series/" + id + @"/all").DocumentElement;
             Serial serial = new Serial(episodes.ChildNodes[0]);
-            HashSet<String> seasonsNumbers = new HashSet<String>();
+            HashSet<string> seasonsNumbers = new HashSet<string>();
             foreach (XmlNode ep in episodes.SelectNodes("//Data//Episode"))
                 seasonsNumbers.Add(ep["SeasonNumber"].InnerText);
             var banners = getSeasonBanner(serial, seasonsNumbers);
@@ -132,13 +132,10 @@ namespace TVSeriesCompanion.Controllers
                 {
                     command.CommandText = "Insert into Seasons (number, serial, banner) Values (" + s.getNumber() + "," + serial.getId() + ",'" + s.getBanner() + "')";
                     command.ExecuteNonQuery();
-                    foreach (Episode e in s.getEpisodes())
-                    {
-                        command.CommandText = "SELECT id FROM Seasons WHERE number="+s.getNumber()+" and serial="+serial.getId();
-                        String seasonId = command.ExecuteScalar().ToString();
-                        command.CommandText = "Insert into Episodes Values (" + e.ToQuery() + ", " + seasonId + ")";
-                        command.ExecuteNonQuery();
-                    }
+                    command.CommandText = "SELECT id FROM Seasons WHERE number=" + s.getNumber() + " and serial=" + serial.getId();
+                    string seasonId = command.ExecuteScalar().ToString();
+                    command.CommandText = s.getEpisodes().Aggregate("", (current, e) => current + ("Insert into Episodes Values (" + e.ToQuery() + ", " + seasonId + "); "));
+                    command.ExecuteNonQuery();
                 }
             }
         }
@@ -200,15 +197,13 @@ namespace TVSeriesCompanion.Controllers
                 serialReader.Close();
                 command.CommandText = "SELECT * from Seasons WHERE serial=" + id;
                 SQLiteDataReader seasonsReader = command.ExecuteReader();
-                SQLiteDataReader episodesReader;
-                List<Episode> episodes;
                 List<Season> seasons = new List<Season>();
                 
                 while (seasonsReader.Read())
                 {
                     additionalCommand.CommandText = "SELECT * from Episodes WHERE season=" + seasonsReader.GetInt16(0)+" ORDER BY number";
-                    episodesReader = additionalCommand.ExecuteReader();
-                    episodes = new List<Episode>();
+                    var episodesReader = additionalCommand.ExecuteReader();
+                    var episodes = new List<Episode>();
                     while (episodesReader.Read())
                         episodes.Add(new Episode(episodesReader));
                     seasons.Add(new Season(seasonsReader.GetInt16(1), episodes, seasonsReader.GetString(3)));
@@ -362,15 +357,12 @@ namespace TVSeriesCompanion.Controllers
                 Tile = Color.Transparent,
                 Body = new SolidBrush(Color.BlueViolet)
             };
-            
             var notifIcon = new NotifIcon
             {
                 Image = (episode.getImage() == "" || !isOnline()) ? Image.FromFile(getSettings().IMAGE_NOT_FOUND) : Image.FromStream(new MemoryStream((new WebClient()).DownloadData(episode.getImage()))),
                 Padding = 20
             };
-
-            Notification notification = new Notification(Style.Fade,
-                Direction.Up,500)
+            Notification notification = new Notification(Style.Fade, Direction.Up,500)
             {
                 Title = episode.getSeason().getNumber() + "x" + episode.getNumber() + " - " + episode.getName(),
                 Body = episode.getOverview(),
@@ -383,14 +375,9 @@ namespace TVSeriesCompanion.Controllers
 
         public static List<Episode> getEpisodesByDate(DateTime date)
         {
-            List<Episode> episodes = new List<Episode>();
-            foreach (Serial serial in getSavedTVSeries())
-                foreach (Season season in serial.getSeasons())
-                    foreach (Episode episode in season.getEpisodes())
-                        if (episode.getFirstAired().Date == date.Date)
-                            episodes.Add(episode);
-            return episodes;
+            return (from serial in getSavedTVSeries() from season in serial.getSeasons() from episode in season.getEpisodes() where episode.getFirstAired().Date == date.Date select episode).ToList();
         }
+
         public static Tuple<bool, Episode> nextToSeeEpisode(Serial serial)
         {
             Episode ep = null;
@@ -404,16 +391,13 @@ namespace TVSeriesCompanion.Controllers
         }
         public static Episode nextEpisode(Serial serial)
         {
-            foreach (Season season in serial.getSeasons())
-                foreach (Episode episode in season.getEpisodes())
-                    if (season.getNumber() != 0 && episode.getFirstAired() > DateTime.Now)
-                        return  episode;
-            return null;
+            return (from season in serial.getSeasons() from episode in season.getEpisodes() where season.getNumber() != 0 && episode.getFirstAired() > DateTime.Now select episode).FirstOrDefault();
         }
+
         [SqlConnectionAspect]
         public static List<Tuple<string,int>> getTVSeriesNames()
         {
-            List<Tuple<string, int>> res = new List<Tuple<string, int>>();
+            var res = new List<Tuple<string, int>>();
             using (SQLiteCommand command = getTransactionCommand())
             {
                 command.CommandText = "SELECT * FROM TVSeries ORDER BY name";
@@ -427,51 +411,48 @@ namespace TVSeriesCompanion.Controllers
         {
             Dictionary<string, string> banners = seasonsNumbers.ToDictionary(h => h, h => (string)null);
             XmlNode xml = DownloadXML(@"http://thetvdb.com/api/CC1D364E3115133D/series/" + serial.getId() + @"/banners.xml").DocumentElement;
-            foreach (XmlNode banner in xml.ChildNodes)
-                if (banner["BannerType2"].InnerText == "season" && banner["Language"].InnerText == "en" && banners.ContainsKey(banner["Season"].InnerText))
-                    banners[banner["Season"].InnerText] = @"http://thetvdb.com/banners/" + banner["BannerPath"].InnerText;
+            foreach (XmlNode banner in xml.ChildNodes.Cast<XmlNode>().Where(banner => banner["BannerType2"].InnerText == "season" && banner["Language"].InnerText == "en" && banners.ContainsKey(banner["Season"].InnerText)))
+                banners[banner["Season"].InnerText] = @"http://thetvdb.com/banners/" + banner["BannerPath"].InnerText;
             return banners;
         }
         private static DateTime getFullDate(Episode episode)
         {
             string time = episode.getSerial().getAirsTime();
             DateTime t = episode.getFirstAired();
-            if (time != "")
-                try
-                {
-                    DateTime addTime = DateTime.Today;
-                    string timeFormat = "";
-                    if (new Regex(@"\d[APap]").Match(time).Success)
-                        time = time.Insert(new Regex(@"\d[APap]").Match(time).Index + 1, " ");
-                    if (new Regex(@"\d{2,2}:\d{1,1}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "HH:mm tt";
-                    else if (new Regex(@"\d{2,2}:\d{1,1}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "HH:m tt";
-                    else if (new Regex(@"\d{1,1}:\d{2,2}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "h:mm tt";
-                    else if (new Regex(@"\d{1,1}:\d{1,1}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "h:m tt";
-                    else if (new Regex(@"\d{2,2}:\d{1,1}").Match(time).Success)
-                        timeFormat = "HH:mm";
-                    else if (new Regex(@"\d{2,2}:\d{1,1}").Match(time).Success)
-                        timeFormat = "HH:m";
-                    else if (new Regex(@"\d{1,1}:\d{2,2}").Match(time).Success)
-                        timeFormat = "h:mm";
-                    else if (new Regex(@"\d{1,1}:\d{1,1}").Match(time).Success)
-                        timeFormat = "h:m";
-                    else if (new Regex(@"\d{2,2}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "HH tt";
-                    else if (new Regex(@"\d{1,1}\s?[APap][mM]").Match(time).Success)
-                        timeFormat = "h tt";
-                    else if (new Regex(@"\d{2,2}").Match(time).Success)
-                        timeFormat = "HH";
-                    else if (new Regex(@"\d{1,1}").Match(time).Success)
-                        timeFormat = "h";
-                    addTime = DateTime.ParseExact(time, timeFormat, CultureInfo.InvariantCulture);
-                    return t.AddHours(addTime.Hour).AddMinutes(addTime.Minute);
-                }
-                catch(FormatException) { return t; }
-            return t;
+            if (time == "") return t;
+            try
+            {
+                string timeFormat = "";
+                if (new Regex(@"\d[APap]").Match(time).Success)
+                    time = time.Insert(new Regex(@"\d[APap]").Match(time).Index + 1, " ");
+                if (new Regex(@"\d{2,2}:\d{1,1}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "HH:mm tt";
+                else if (new Regex(@"\d{2,2}:\d{1,1}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "HH:m tt";
+                else if (new Regex(@"\d{1,1}:\d{2,2}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "h:mm tt";
+                else if (new Regex(@"\d{1,1}:\d{1,1}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "h:m tt";
+                else if (new Regex(@"\d{2,2}:\d{1,1}").Match(time).Success)
+                    timeFormat = "HH:mm";
+                else if (new Regex(@"\d{2,2}:\d{1,1}").Match(time).Success)
+                    timeFormat = "HH:m";
+                else if (new Regex(@"\d{1,1}:\d{2,2}").Match(time).Success)
+                    timeFormat = "h:mm";
+                else if (new Regex(@"\d{1,1}:\d{1,1}").Match(time).Success)
+                    timeFormat = "h:m";
+                else if (new Regex(@"\d{2,2}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "HH tt";
+                else if (new Regex(@"\d{1,1}\s?[APap][mM]").Match(time).Success)
+                    timeFormat = "h tt";
+                else if (new Regex(@"\d{2,2}").Match(time).Success)
+                    timeFormat = "HH";
+                else if (new Regex(@"\d{1,1}").Match(time).Success)
+                    timeFormat = "h";
+                var addTime = DateTime.ParseExact(time, timeFormat, CultureInfo.InvariantCulture);
+                return t.AddHours(addTime.Hour).AddMinutes(addTime.Minute);
+            }
+            catch(FormatException) { return t; }
         }
         private static XmlDocument DownloadXML(string address)
         {

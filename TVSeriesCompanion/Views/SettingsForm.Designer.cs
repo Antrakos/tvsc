@@ -373,7 +373,7 @@
             // 
             // imageDialog
             // 
-            this.imageDialog.FileName = "openFileDialog1";
+            this.imageDialog.FileName = "";
             // 
             // SettingsForm
             // 
