@@ -1,0 +1,12 @@
+{
+"TORRENT_DIR":"torrents\\","SUBS_DIR":"subtitles\\",
+"RUN_TORRENT_AFTER_DOWNLOAD":true,
+"SHOW_HI":false,
+"IMAGE_NOT_FOUND":"resources\\images\\not-found.png",
+"DOWNLOAD_TORRENT_IMAGE":"resources\\images\\arrow-download-icon.png",
+"CHECK_IMAGE":"resources\\images\\check_alt-128.png",
+"UNCHECK_IMAGE":"resources\\images\\check-icon.png",
+"DOWNLOAD_IMAGE":"resources\\images\\download.ico",
+"ADD_IMAGE":"resources\\images\\sign-27080_640.png",
+"UPDATE_INTERVAL":"1.00:00:00"
+}
